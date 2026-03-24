@@ -1,0 +1,194 @@
+# Medical Assistant Project - .gitignore
+
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================================================
+# Virtual Environment
+# ============================================================================
+venv/
+ENV/
+env/
+.venv
+env.bak/
+venv.bak/
+
+# ============================================================================
+# Jupyter Notebook
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# ============================================================================
+# Environment Variables & Secrets
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.json
+
+# ============================================================================
+# Models (Large Files)
+# ============================================================================
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pkl
+*.pickle
+
+# But keep directory structure
+!models/.gitkeep
+!models/finetuned/.gitkeep
+
+# ============================================================================
+# Data (Sensitive/Large)
+# ============================================================================
+data/raw/
+data/processed/
+data/vector_store/
+*.csv
+*.json
+*.jsonl
+*.parquet
+*.feather
+
+# But keep directory structure
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/vector_store/.gitkeep
+
+# Keep example data (if small)
+!data/examples/
+
+# ============================================================================
+# Logs
+# ============================================================================
+logs/
+*.log
+*.out
+*.err
+
+# But keep directory
+!logs/.gitkeep
+
+# ============================================================================
+# Weights & Biases
+# ============================================================================
+wandb/
+
+# ============================================================================
+# IDEs
+# ============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================================================
+# OS
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ============================================================================
+# Testing
+# ============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ============================================================================
+# Documentation
+# ============================================================================
+docs/_build/
+site/
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.cache/
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+# Evaluation results (large)
+evaluation_results/
+
+# Inference outputs
+outputs/
+generations/
+
+# Checkpoints (keep best model only)
+checkpoints/
+
+# Cache
+.transformers_cache/
+.huggingface/
+
+# ============================================================================
+# Keep These
+# ============================================================================
+!.gitkeep
+!README.md
+!requirements.txt
+!.env.example
