@@ -38,6 +38,27 @@ try:
 except ImportError:
     _PEFT_AVAILABLE = False
 
+# Tradução automática EN→PT (requer conexão com internet)
+try:
+    from deep_translator import GoogleTranslator
+    _TRANSLATOR_AVAILABLE = True
+except ImportError:
+    _TRANSLATOR_AVAILABLE = False
+
+
+def _translate_to_pt(text: str) -> str:
+    """Traduz texto para português se o deep-translator estiver disponível."""
+    if not _TRANSLATOR_AVAILABLE or not text.strip():
+        return text
+    try:
+        # Divide em blocos de até 4500 chars (limite da API gratuita)
+        chunk_size = 4500
+        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+        translated = GoogleTranslator(source="auto", target="pt").translate_batch(chunks)
+        return " ".join(translated)
+    except Exception:
+        return text  # fallback: retorna original se a tradução falhar
+
 @dataclass
 class AssistantConfig:
     """Configuration for medical assistant"""
@@ -381,6 +402,9 @@ Pergunta: {query}
             response = self.llm.invoke(prompt)
             sources = []
         
+        # Traduz resposta para português (modelo base gera em inglês)
+        response = _translate_to_pt(response)
+
         # Safety validation
         safety_check = self.safety_validator.validate_response(response, query)
         

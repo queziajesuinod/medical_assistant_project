@@ -20,6 +20,23 @@ from datetime import datetime
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Tradução automática EN→PT
+try:
+    from deep_translator import GoogleTranslator
+    _TRANSLATOR_AVAILABLE = True
+except ImportError:
+    _TRANSLATOR_AVAILABLE = False
+
+
+def _translate_to_pt(text: str) -> str:
+    if not _TRANSLATOR_AVAILABLE or not text.strip():
+        return text
+    try:
+        chunks = [text[i:i + 4500] for i in range(0, len(text), 4500)]
+        return " ".join(GoogleTranslator(source="auto", target="pt").translate_batch(chunks))
+    except Exception:
+        return text
+
 # ── Dependências ──────────────────────────────────────────────────────────────
 try:
     import torch
@@ -196,7 +213,9 @@ class MedicalDemoLLM:
         text: str = out[0]["generated_text"]
         if prompt in text:
             text = text[len(prompt):].strip()
-        return text or "[resposta não gerada]"
+        text = text or "[resposta não gerada]"
+        # Traduz para português (distilgpt2 gera em inglês)
+        return _translate_to_pt(text)
 
 
 # ── Assistente principal ──────────────────────────────────────────────────────
