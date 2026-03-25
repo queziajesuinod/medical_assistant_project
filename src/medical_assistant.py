@@ -16,7 +16,6 @@ from langchain_classic.chains import LLMChain, RetrievalQA
 from langchain_classic.prompts import PromptTemplate
 from langchain_classic.memory import ConversationBufferMemory
 from langchain_classic.vectorstores import FAISS
-from langchain_classic.embeddings import HuggingFaceEmbeddings
 from langchain_classic.text_splitter import RecursiveCharacterTextSplitter
 from langchain_classic.docstore.document import Document
 from pydantic import BaseModel, Field
@@ -25,6 +24,19 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.outputs import Generation, LLMResult
+
+# HuggingFaceEmbeddings: usa langchain-huggingface se disponível, senão langchain_community
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings  # type: ignore
+
+# PEFT para carregar modelos LoRA fine-tuned
+try:
+    from peft import PeftModel, PeftConfig
+    _PEFT_AVAILABLE = True
+except ImportError:
+    _PEFT_AVAILABLE = False
 
 @dataclass
 class AssistantConfig:
@@ -62,27 +74,56 @@ class CustomLLM(BaseLLM):
         self._load_model()
     
     def _load_model(self):
-        """Load the fine-tuned model"""
+        """Load the fine-tuned model (suporta LoRA/PEFT e modelo base)"""
         print(f"Loading model from {self.model_path}...")
-        
+
         tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-        model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True
-        )
-        
+
+        # Tenta carregar como modelo PEFT/LoRA; cai para base se não disponível
+        if _PEFT_AVAILABLE:
+            try:
+                peft_cfg = PeftConfig.from_pretrained(self.model_path)
+                base = AutoModelForCausalLM.from_pretrained(
+                    peft_cfg.base_model_name_or_path,
+                    dtype=torch.float32,
+                    device_map="cpu",
+                    trust_remote_code=True,
+                )
+                model = PeftModel.from_pretrained(base, self.model_path)
+                model = model.merge_and_unload()  # funde LoRA no modelo base
+                print("✓ Modelo LoRA (PEFT) carregado e fundido")
+            except Exception:
+                model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    dtype=torch.float32,
+                    device_map="cpu",
+                    trust_remote_code=True,
+                )
+                print("✓ Modelo base carregado (sem LoRA)")
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                dtype=torch.float32,
+                device_map="cpu",
+                trust_remote_code=True,
+            )
+            print("✓ Modelo carregado")
+
+        # Parâmetros de geração passados apenas no momento da chamada
         self.pipeline = pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
-            temperature=self.temperature,
-            max_new_tokens=self.max_new_tokens,
-            do_sample=True,
-            top_p=0.95,
-            repetition_penalty=1.15
+            device=-1,  # CPU
         )
+        self._gen_kwargs = {
+            "max_new_tokens": self.max_new_tokens,
+            "do_sample": True,
+            "temperature": self.temperature,
+            "top_p": 0.95,
+            "repetition_penalty": 1.15,
+            "pad_token_id": tokenizer.eos_token_id,
+        }
         
         print("✓ Model loaded successfully")
     
@@ -99,23 +140,18 @@ class CustomLLM(BaseLLM):
     ) -> LLMResult:
         """Run generation for a list of prompts."""
         generations = []
-
         for prompt in prompts:
-            raw = self.pipeline(prompt)[0]["generated_text"]
+            raw = self.pipeline(prompt, **self._gen_kwargs)[0]["generated_text"]
             if prompt in raw:
                 raw = raw.split(prompt, 1)[-1].strip()
             generations.append([Generation(text=raw)])
-
         return LLMResult(generations=generations)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         """Call the model"""
-        result = self.pipeline(prompt)[0]["generated_text"]
-
-        # Extract only the generated part (after the prompt)
+        result = self.pipeline(prompt, **self._gen_kwargs)[0]["generated_text"]
         if prompt in result:
             result = result.split(prompt)[-1].strip()
-
         return result
 
 class SafetyValidator:
@@ -273,8 +309,9 @@ class MedicalAssistant:
     def _initialize_vector_store(self) -> Optional[FAISS]:
         """Initialize or load vector store for RAG"""
         vector_store_path = Path(self.config.vector_store_path)
-        
-        if vector_store_path.exists():
+        index_file = vector_store_path / "index.faiss"
+
+        if index_file.exists():
             print("📚 Loading existing vector store...")
             embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -282,10 +319,10 @@ class MedicalAssistant:
             return FAISS.load_local(
                 str(vector_store_path),
                 embeddings,
-                allow_dangerous_deserialization=True
+                allow_dangerous_deserialization=True,
             )
         else:
-            print("⚠ No vector store found. RAG features will be limited.")
+            print("⚠ Vector store não encontrado. RAG desabilitado (execute data_preparation.py primeiro).")
             return None
     
     def _setup_qa_chain(self) -> Optional[RetrievalQA]:
@@ -330,7 +367,7 @@ Resposta detalhada:"""
         
         # Generate response
         if use_rag and self.qa_chain:
-            result = self.qa_chain({"query": query})
+            result = self.qa_chain.invoke({"query": query})
             response = result["result"]
             sources = [doc.page_content[:200] for doc in result.get("source_documents", [])]
         else:
@@ -341,7 +378,7 @@ Você é um assistente médico especializado. Responda à seguinte pergunta clí
 Pergunta: {query}
 
 ### Resposta:"""
-            response = self.llm(prompt)
+            response = self.llm.invoke(prompt)
             sources = []
         
         # Safety validation

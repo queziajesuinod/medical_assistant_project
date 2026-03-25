@@ -38,40 +38,40 @@ class FineTuningConfig:
     """Configuration for fine-tuning"""
     
     # Model settings
-    model_name: str = "mistralai/Mistral-7B-v0.1"  # or "meta-llama/Llama-2-7b-hf"
-    use_4bit: bool = True
-    use_8bit: bool = False
+    model_name: str = "distilgpt2"  # Changed to smaller model for CPU
+    use_4bit: bool = False
+    use_8bit: bool = False  # Changed to False
     
     # LoRA settings
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    lora_target_modules: list = field(default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj"])
+    lora_target_modules: list = field(default_factory=lambda: ["c_attn"])  # Changed for GPT2
     
     # Training settings
     output_dir: str = "./models/finetuned"
-    num_train_epochs: int = 3
-    per_device_train_batch_size: int = 4
-    per_device_eval_batch_size: int = 4
-    gradient_accumulation_steps: int = 4
+    num_train_epochs: int = 1  # Reduced for demo
+    per_device_train_batch_size: int = 1  # Reduced
+    per_device_eval_batch_size: int = 1  # Reduced
+    gradient_accumulation_steps: int = 1  # Reduced
     learning_rate: float = 2e-4
     max_grad_norm: float = 0.3
-    warmup_ratio: float = 0.03
+    warmup_steps: int = 10  # Reduced
     weight_decay: float = 0.001
     
     # Logging
     logging_steps: int = 10
-    eval_steps: int = 100
-    save_steps: int = 100
+    eval_steps: int = 50  # Reduced
+    save_steps: int = 50  # Reduced
     use_wandb: bool = False
     
     # Data
     data_dir: str = "./data/processed"
-    max_seq_length: int = 2048
+    max_seq_length: int = 512  # Reduced
     
-    # Hardware
+    # Hardware — fp16 requer GPU; desabilitado para rodar em CPU
     fp16: bool = False
-    bf16: bool = True  # Better for modern GPUs
+    bf16: bool = False
 
 class MedicalLLMFineTuner:
     """Fine-tune LLM for medical assistant"""
@@ -114,7 +114,10 @@ class MedicalLLMFineTuner:
             )
             print("✓ Using 4-bit quantization (QLoRA)")
         elif self.config.use_8bit:
-            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+            bnb_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_enable_fp32_cpu_offload=True  # Allow CPU offload for 8-bit
+            )
             print("✓ Using 8-bit quantization")
         else:
             bnb_config = None
@@ -124,11 +127,9 @@ class MedicalLLMFineTuner:
         token = os.environ.get('HUGGINGFACE_TOKEN')
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model_name,
-            quantization_config=bnb_config,
-            device_map="auto",
+            device_map="cpu",  # Changed to CPU
             trust_remote_code=True,
-            token=token,
-            torch_dtype=torch.bfloat16 if self.config.bf16 else torch.float16
+            token=token
         )
         
         # Prepare for k-bit training
@@ -252,7 +253,7 @@ class MedicalLLMFineTuner:
             gradient_accumulation_steps=self.config.gradient_accumulation_steps,
             learning_rate=self.config.learning_rate,
             max_grad_norm=self.config.max_grad_norm,
-            warmup_ratio=self.config.warmup_ratio,
+            warmup_steps=self.config.warmup_steps,  # Changed from warmup_ratio
             weight_decay=self.config.weight_decay,
             logging_steps=self.config.logging_steps,
             eval_steps=self.config.eval_steps,
@@ -262,7 +263,7 @@ class MedicalLLMFineTuner:
             load_best_model_at_end=True,
             fp16=self.config.fp16,
             bf16=self.config.bf16,
-            optim="paged_adamw_32bit",
+            optim="adamw_torch",  # paged_adamw_32bit requer bitsandbytes com GPU
             report_to="wandb" if self.config.use_wandb else "none",
             run_name=self.run_name,
         )
@@ -305,16 +306,19 @@ class MedicalLLMFineTuner:
             wandb.finish()
 
 def main():
-    # Configuration
+    # Configuração leve para rodar em CPU sem GPU
+    # distilgpt2 tem apenas 82M parâmetros (vs 7B do Mistral/LLaMA)
     config = FineTuningConfig(
-        model_name=os.environ.get('MODEL_NAME', 'mistralai/Mistral-7B-v0.1'),  # Change to your preferred model
-        use_4bit=True,
-        num_train_epochs=3,
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=4,
+        model_name="distilgpt2",
+        use_4bit=False,
+        use_8bit=False,
+        num_train_epochs=1,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
         learning_rate=2e-4,
-        max_seq_length=2048,
-        use_wandb=False  # Set to True if you want W&B tracking
+        max_seq_length=128,
+        fp16=False,
+        use_wandb=False,
     )
     
     # Initialize fine-tuner
